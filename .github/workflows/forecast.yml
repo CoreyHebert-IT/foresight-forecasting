@@ -1,0 +1,148 @@
+# Foresight: AI price forecasts for a dashboard's forecast panel.
+#
+# Every hour: a plan job builds the ticker list (the defaults in forecast.py plus
+# anything requested from the forecast panel in the last 24 hours), one job per ticker
+# runs Kronos-small on CPU (about 2 to 4 minutes each, all in parallel), then one
+# small job merges the results and publishes them to the feeds Worker. The Worker
+# can also start this workflow for a single ticker (the "run forecast" button),
+# which passes that ticker in the `tickers` input.
+#
+# Keep this repository PUBLIC. GitHub Actions minutes are free and unlimited for
+# public repositories, and this schedule would use far more than a private
+# repository's free allowance. Nothing secret is in the code: both tokens live in
+# the repository's Actions secrets.
+#
+# Settings (repository > Settings > Secrets and variables > Actions):
+#   secret   FORECAST_TOKEN       publish token, same value as the Worker secret;
+#                                 given to the publish job only
+#   secret   FORECAST_READ_TOKEN  read-only token (extras, Schwab candles), same
+#                                 value as the Worker secret; plan and forecast jobs
+#   variable FORECAST_URL    your Worker's forecast URL, e.g. https://<your-worker>/forecast
+#
+# Supply chain: the Kronos code is a reviewed copy in vendor/kronos (no clone at
+# run time), the model weights are pinned to an exact Hugging Face commit and
+# checked against SHA-256 hashes before loading, Python packages install only
+# from requirements.lock with hashes, and every action is pinned to a commit SHA
+# (the tag is in the comment). Nothing here pulls "latest" of anything.
+#
+# GitHub may start scheduled runs a few minutes late when it is busy.
+
+name: Foresight forecasts
+
+on:
+  schedule:
+    - cron: "7 * * * *"      # minute 7 of every hour, after the hourly candle closes
+  workflow_dispatch:         # "Run workflow" button, and on-demand runs from the Worker
+    inputs:
+      tickers:
+        description: "Comma-separated tickers (blank = the full hourly list)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# Hourly runs replace each other; an on-demand run for one ticker never cancels
+# (or is cancelled by) the hourly run.
+concurrency:
+  group: foresight-${{ github.event.inputs.tickers || 'hourly' }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      tickers: ${{ steps.plan.outputs.tickers }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - id: plan
+        env:
+          FORECAST_URL: ${{ vars.FORECAST_URL }}
+          FORECAST_READ_TOKEN: ${{ secrets.FORECAST_READ_TOKEN }}
+          INPUT_TICKERS: ${{ github.event.inputs.tickers }}
+        run: echo "tickers=$(python forecast/forecast.py plan --tickers "$INPUT_TICKERS")" >> "$GITHUB_OUTPUT"
+
+  forecast:
+    needs: plan
+    if: ${{ needs.plan.outputs.tickers != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The default list lives in DEFAULT_TICKERS in forecast.py.
+        ticker: ${{ fromJSON(needs.plan.outputs.tickers) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: forecast/requirements.lock
+
+      # Weights come from your R2 mirror (Hugging Face as fallback) and are
+      # re-checked against their SHA-256 on every run, cached or not.
+      - name: Cache model weights
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830   # v4.3.0
+        with:
+          path: ~/.cache/foresight-weights
+          key: kronos-weights-901c26c-0e01173
+
+      - name: Install (hash-checked)
+        run: >
+          pip install --require-hashes --no-deps --only-binary=:all:
+          --extra-index-url https://download.pytorch.org/whl/cpu
+          -r forecast/requirements.lock
+
+      - name: Forecast
+        env:
+          TICKER: ${{ matrix.ticker }}
+          # Read-only token, only for the Schwab fallback (used when Yahoo fails),
+          # which goes through the feeds Worker. It can't publish forecasts, and
+          # the Schwab login itself never reaches GitHub.
+          FORECAST_URL: ${{ vars.FORECAST_URL }}
+          FORECAST_READ_TOKEN: ${{ secrets.FORECAST_READ_TOKEN }}
+        run: python forecast/forecast.py run --tickers "$TICKER" --out part.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4.6.2
+        with:
+          name: part-${{ strategy.job-index }}
+          path: part.json
+          retention-days: 1
+
+  publish:
+    needs: forecast
+    if: ${{ !cancelled() && needs.forecast.result != 'skipped' }}   # publish whatever tickers succeeded
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4.3.0
+        with:
+          pattern: part-*
+          path: parts
+
+      - name: Merge and publish
+        env:
+          FORECAST_URL: ${{ vars.FORECAST_URL }}
+          FORECAST_TOKEN: ${{ secrets.FORECAST_TOKEN }}
+        run: python forecast/forecast.py merge parts --publish

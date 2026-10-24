@@ -1,0 +1,14 @@
+# Top-level dependencies. The workflow installs from requirements.lock, which pins
+# every package (including indirect ones) to an exact version and SHA-256 hash, so
+# a hijacked or re-uploaded package on PyPI can't slip in. To refresh the lock:
+#   uv pip compile forecast/requirements.in --generate-hashes --python-version 3.12 \
+#     --python-platform x86_64-manylinux_2_28 --index-url https://pypi.org/simple \
+#     --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match \
+#     --exclude-newer <date two weeks ago> -o forecast/requirements.lock
+torch>=2.6,<3
+numpy>=2.0
+pandas>=2.2
+einops==0.8.1
+huggingface_hub==0.33.1
+safetensors>=0.4
+tqdm>=4.66
