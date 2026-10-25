@@ -48,16 +48,18 @@ KRONOS_DIR = os.environ.get("KRONOS_DIR", os.path.join(HERE, "..", "vendor", "kr
 
 # display symbol, Yahoo symbol, TradingView symbol (for the GP link), name
 DEFAULT_TICKERS = [
-    ("SPY",  "SPY",     "AMEX:SPY",        "S&P 500 ETF"),
-    ("QQQ",  "QQQ",     "NASDAQ:QQQ",      "Nasdaq 100 ETF"),
-    ("NVDA", "NVDA",    "NASDAQ:NVDA",     "Nvidia"),
-    ("SMH",  "SMH",     "NASDAQ:SMH",      "Semiconductor ETF"),
-    ("AAPL", "AAPL",    "NASDAQ:AAPL",     "Apple"),
-    ("MSFT", "MSFT",    "NASDAQ:MSFT",     "Microsoft"),
-    ("TSLA", "TSLA",    "NASDAQ:TSLA",     "Tesla"),
-    ("XLE",  "XLE",     "AMEX:XLE",        "Energy ETF"),
-    ("GLD",  "GLD",     "AMEX:GLD",        "Gold ETF"),
-    ("BTC",  "BTC-USD", "BITSTAMP:BTCUSD", "Bitcoin"),
+    ("NVDA",  "NVDA",  "NASDAQ:NVDA",  "Nvidia"),
+    ("AMD",   "AMD",   "NASDAQ:AMD",   "AMD"),
+    ("MSFT",  "MSFT",  "NASDAQ:MSFT",  "Microsoft"),
+    ("AMZN",  "AMZN",  "NASDAQ:AMZN",  "Amazon"),
+    ("GOOGL", "GOOGL", "NASDAQ:GOOGL", "Alphabet"),
+    ("TSLA",  "TSLA",  "NASDAQ:TSLA",  "Tesla"),
+    ("SPCX",  "SPCX",  "NASDAQ:SPCX",  "SpaceX"),
+    ("CVX",   "CVX",   "NYSE:CVX",     "Chevron"),
+    ("XOM",   "XOM",   "NYSE:XOM",     "ExxonMobil"),
+    ("PLTR",  "PLTR",  "NASDAQ:PLTR",  "Palantir"),
+    ("VXUS",  "VXUS",  "NASDAQ:VXUS",  "Total International ETF"),
+    ("VOO",   "VOO",   "AMEX:VOO",     "S&P 500 ETF"),
 ]
 
 MODEL_ID = "NeoQuasar/Kronos-small"
