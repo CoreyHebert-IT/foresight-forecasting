@@ -178,9 +178,23 @@ def tickers(arg=""):
     return out
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """urllib re-sends custom headers, Authorization included, when it follows a redirect, even to
+    another host. Requests that carry a token don't follow redirects at all."""
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def _authed_open(req, timeout):
+    if not req.full_url.lower().startswith("https://"):
+        raise RuntimeError("refusing to send a token to a non-https URL")
+    return urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout)
+
+
 def _get_json(url, headers=None, limit=4_000_000):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json", **(headers or {})})
-    with urllib.request.urlopen(req, timeout=20) as r:
+    authed = any(k.lower() == "authorization" for k in (headers or {}))
+    with (_authed_open(req, 20) if authed else urllib.request.urlopen(req, timeout=20)) as r:
         return json.loads(r.read(limit))
 
 
@@ -369,7 +383,7 @@ def cmd_plan(args):
             try:
                 req = urllib.request.Request(url.rstrip("/") + "/extras", headers={
                     "Authorization": "Bearer " + token, "User-Agent": UA, "Accept": "application/json"})
-                with urllib.request.urlopen(req, timeout=15) as r:
+                with _authed_open(req, 15) as r:
                     extra = json.loads(r.read(20000)).get("syms", [])
                 syms += [t[0] for t in tickers(",".join(extra)) if t[0] not in syms][:10]
             except Exception as e:  # the hourly run still goes ahead with the defaults
